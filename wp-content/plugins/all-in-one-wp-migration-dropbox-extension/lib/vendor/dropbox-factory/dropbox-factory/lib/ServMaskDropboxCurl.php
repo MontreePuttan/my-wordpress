@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright (C) 2014-2015 ServMask Inc.
+ * Copyright (C) 2014-2017 ServMask Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,8 +46,8 @@ class ServMaskDropboxCurl {
 		// Default configuration
 		$this->setOption(CURLOPT_HEADER, false);
 		$this->setOption(CURLOPT_RETURNTRANSFER, true);
-		$this->setOption(CURLOPT_CONNECTTIMEOUT, 30);
-		$this->setOption(CURLOPT_TIMEOUT, 60);
+		$this->setOption(CURLOPT_CONNECTTIMEOUT, 120);
+		$this->setOption(CURLOPT_TIMEOUT, 0);
 
 		// Enable SSL support
 		$this->setOption(CURLOPT_SSL_VERIFYHOST, 2);

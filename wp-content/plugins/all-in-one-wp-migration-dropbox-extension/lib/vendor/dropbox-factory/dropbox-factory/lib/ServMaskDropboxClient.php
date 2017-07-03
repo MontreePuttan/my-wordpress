@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright (C) 2014-2015 ServMask Inc.
+ * Copyright (C) 2014-2017 ServMask Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,15 +23,11 @@
  * ╚══════╝╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
  */
 
-require_once dirname(__FILE__) . DIRECTORY_SEPARATOR . 'ServMaskDropboxCurl.php';
-
 class ServMaskDropboxClient {
 
-	const API_URL              = 'https://api.dropbox.com/1';
+	const API_URL              = 'https://api.dropboxapi.com/2';
 
-	const API_CONTENT_URL      = 'https://api-content.dropbox.com/1';
-
-	const CHUNK_THRESHOLD_SIZE = 9863168; // 8 MB
+	const API_CONTENT_URL      = 'https://content.dropboxapi.com/2';
 
 	const CHUNK_SIZE           = 4194304; // 4 MB
 
@@ -64,62 +60,103 @@ class ServMaskDropboxClient {
 	/**
 	 * Upload file
 	 *
-	 * @param  string   $path       Dropbox file path.
-	 * @param  resource $fileStream File stream.
-	 * @param  int      $fileSize   File size.
+	 * @param  string $path   Dropbox file path.
+	 * @param  string $file   File data.
+	 * @param  array  $params Dropbox query params.
+	 * @param  object $adapter Dropbox HTTP client.
 	 * @return mixed
 	 */
-	public function uploadFile($path, $fileStream, $fileSize) {
-		$api = new ServMaskDropboxCurl;
-		$api->setAccessToken($this->accessToken);
-		$api->setSSL($this->ssl);
-		$api->setBaseURL(self::API_CONTENT_URL);
-		$api->setPath("/files_put/auto/$path");
-		$api->setOption(CURLOPT_PUT, true);
-		$api->setOption(CURLOPT_INFILE, $fileStream);
-		$api->setOption(CURLOPT_INFILESIZE, $fileSize);
+	public function uploadFile($path, $file, &$params = array(), $adapter = null) {
+        if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
 
-		return $api->makeRequest();
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_CONTENT_URL);
+		$adapter->setOption(CURLOPT_POST, true);
+		$adapter->setOption(CURLOPT_POSTFIELDS, $file);
+		$adapter->setPath('/files/upload');
+		$adapter->setHeader('Content-Type', 'application/octet-stream');
+		$adapter->setHeader('Dropbox-API-Arg', json_encode(array(
+			'path'       =>  $path,
+			'mode'       =>  'add',
+			'autorename' =>  true,
+			'mute'       =>  false,
+		)));
+
+		return $adapter->makeRequest();
 	}
 
 	/**
-	 * Upload file chunk
+	 * Upload first file chunk
 	 *
 	 * @param  string $chunk  File chunk data.
 	 * @param  array  $params Dropbox query params.
+	 * @param  object $adapter Dropbox HTTP client.
 	 * @return array
 	 */
-	public function uploadFileChunk($chunk, &$params = array()) {
-		// Upload ID
-		if (!isset($params['upload_id'])) {
-			$params['upload_id'] = null;
+	public function uploadFirstFileChunk($chunk, &$params = array(), $adapter = null) {
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
 		}
 
-		$api = new ServMaskDropboxCurl;
-		$api->setAccessToken($this->accessToken);
-		$api->setSSL($this->ssl);
-		$api->setBaseURL(self::API_CONTENT_URL);
-		$api->setOption(CURLOPT_CUSTOMREQUEST, 'PUT');
-		$api->setHeader('Content-Type', 'application/octet-stream');
-
-		// Upload chunk
-		$api->setOption(CURLOPT_POSTFIELDS, $chunk);
-		$api->setPath('/chunked_upload?' . http_build_query(array(
-			'upload_id' => $params['upload_id'],
-			'offset'    => $params['offset'],
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_CONTENT_URL);
+		$adapter->setOption(CURLOPT_POST, true);
+		$adapter->setOption(CURLOPT_POSTFIELDS, $chunk);
+		$adapter->setPath('/files/upload_session/start');
+		$adapter->setHeader('Content-Type', 'application/octet-stream');
+		$adapter->setHeader('Dropbox-API-Arg', json_encode(array(
+			'close' => false,
 		)));
 
 		// Make request
-		$response = $api->makeRequest();
+		$response = $adapter->makeRequest();
+
+		// Set upload ID
+		if (isset($response['session_id'])) {
+			$params['upload_id'] = $response['session_id'];
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Upload next file chunk
+	 *
+	 * @param  string $chunk  File chunk data.
+	 * @param  array  $params Dropbox query params.
+	 * @param  object $adapter Dropbox HTTP client.
+	 * @return array
+	 */
+	public function uploadNextFileChunk($chunk, &$params = array(), $adapter = null) {
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
+
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_CONTENT_URL);
+		$adapter->setOption(CURLOPT_POST, true);
+		$adapter->setOption(CURLOPT_POSTFIELDS, $chunk);
+		$adapter->setPath('/files/upload_session/append_v2');
+		$adapter->setHeader('Content-Type', 'application/octet-stream');
+		$adapter->setHeader('Dropbox-API-Arg', json_encode(array(
+			'cursor' =>  array(
+				'session_id' => $params['upload_id'],
+				'offset'     => (int) $params['offset'],
+			),
+			'close'  =>  false,
+		)));
+
+		// Make request
+		$response = $adapter->makeRequest();
 
 		// Set upload ID
 		if (isset($response['upload_id'])) {
 			$params['upload_id'] = $response['upload_id'];
-		}
-
-		// Set offset
-		if (isset($response['offset'])) {
-			$params['offset'] = $response['offset'];
 		}
 
 		return $response;
@@ -129,21 +166,37 @@ class ServMaskDropboxClient {
 	 * Commit upload file chunk
 	 *
 	 * @param  string $path   Dropbox file path.
+	 * @param  string $chunk  File chunk data.
 	 * @param  array  $params Dropbox query params.
+	 * @param  object $adapter Dropbox HTTP client.
 	 * @return mixed
 	 */
-	public function uploadFileChunkCommit($path, &$params = array()) {
-		$api = new ServMaskDropboxCurl;
-		$api->setAccessToken($this->accessToken);
-		$api->setSSL($this->ssl);
-		$api->setBaseURL(self::API_CONTENT_URL);
-		$api->setPath("/commit_chunked_upload/auto/$path");
-		$api->setOption(CURLOPT_POST, true);
-		$api->setOption(CURLOPT_POSTFIELDS, array(
-			'upload_id' => $params['upload_id'],
-		));
+	public function uploadFileChunkCommit($path, $chunk, &$params = array(), $adapter = null) {
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
 
-		return $api->makeRequest();
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_CONTENT_URL);
+		$adapter->setOption(CURLOPT_POST, true);
+		$adapter->setOption(CURLOPT_POSTFIELDS, $chunk);
+		$adapter->setPath('/files/upload_session/finish');
+		$adapter->setHeader('Content-Type', 'application/octet-stream');
+		$adapter->setHeader('Dropbox-API-Arg', json_encode(array(
+			'cursor' =>  array(
+				'session_id' => $params['upload_id'],
+				'offset'     => (int) $params['offset'],
+			),
+			'commit' =>  array(
+				'path'       => $path,
+				'mode'       => 'add',
+				'autorename' => true,
+				'mute'       => false,
+			),
+		)));
+
+		return $adapter->makeRequest();
 	}
 
 	/**
@@ -152,21 +205,27 @@ class ServMaskDropboxClient {
 	 * @param  string   $path       The path to the file on Dropbox (UTF-8).
 	 * @param  resource $fileStream File stream.
 	 * @param  array    $params     Dropbox query params.
+	 * @param  object   $adapter     Dropbox HTTP client.
 	 * @return mixed
 	 */
-	public function getFile($path, $fileStream, &$params = array()) {
+	public function getFile($path, $fileStream, &$params = array(), $adapter = null) {
 		$this->chunkStream = fopen('php://temp', 'wb+');
 
-		$api = new ServMaskDropboxCurl;
-		$api->setAccessToken($this->accessToken);
-		$api->setSSL($this->ssl);
-		$api->setBaseURL(self::API_CONTENT_URL);
-		$api->setPath("/files/auto/$path");
-		$api->setOption(CURLOPT_WRITEFUNCTION, array($this, 'curlWriteFunction'));
-		$api->setHeader('Range', "bytes={$params['startBytes']}-{$params['endBytes']}");
+		// Set client
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
+
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_CONTENT_URL);
+		$adapter->setPath('/files/download');
+		$adapter->setOption(CURLOPT_WRITEFUNCTION, array($this, 'curlWriteFunction'));
+		$adapter->setHeader('Range', "bytes={$params['startBytes']}-{$params['endBytes']}");
+		$adapter->setHeader('Dropbox-API-Arg', json_encode(array('path' => $path)));
 
 		// Make request
-		$api->makeRequest();
+		$adapter->makeRequest();
 
 		// Copy chunk data into file stream
 		if (fwrite($fileStream, stream_get_contents($this->chunkStream, -1, 0)) === false) {
@@ -215,89 +274,171 @@ class ServMaskDropboxClient {
 	/**
 	 * Creates a folder
 	 *
-	 * @param  string $path The Dropbox path at which to create the folder (UTF-8).
+	 * @param  string $path   Dropbox path at which to create the folder (UTF-8).
+	 * @param  object $adapter Dropbox HTTP client.
 	 * @return mixed
 	 */
-	public function createFolder($path) {
-		$api = new ServMaskDropboxCurl;
-		$api->setAccessToken($this->accessToken);
-		$api->setSSL($this->ssl);
-		$api->setBaseURL(self::API_URL);
-		$api->setPath('/fileops/create_folder');
-		$api->setOption(CURLOPT_POST, true);
-		$api->setOption(CURLOPT_POSTFIELDS, array(
+	public function createFolder($path, $adapter = null) {
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
+
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_URL);
+		$adapter->setPath('/fileops/create_folder');
+		$adapter->setOption(CURLOPT_POST, true);
+		$adapter->setOption(CURLOPT_POSTFIELDS, array(
 			'root' => 'auto',
 			'path' => $path,
 		));
 
-		return $api->makeRequest();
+		return $adapter->makeRequest();
 	}
 
 	/**
 	 * Retrieves file and folder metadata
 	 *
-	 * @param  string $path The Dropbox path at which to create the folder (UTF-8).
+	 * @param  string $path   Dropbox path at which to create the folder (UTF-8).
+	 * @param  object $adapter Dropbox HTTP client.
 	 * @return mixed
 	 */
-	public function metadata($path) {
-		$api = new ServMaskDropboxCurl;
-		$api->setAccessToken($this->accessToken);
-		$api->setSSL($this->ssl);
-		$api->setBaseURL(self::API_URL);
-		$api->setPath("/metadata/auto/$path");
+	public function metadata($path, $adapter = null) {
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
 
-		return $api->makeRequest();
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_URL);
+		$adapter->setPath('/files/get_metadata');
+		$adapter->setHeader('Content-Type', 'application/json; charset=utf-8');
+		$adapter->setOption(CURLOPT_POST, true);
+		$adapter->setOption(CURLOPT_POSTFIELDS, json_encode(array(
+			'path'                                => $path,
+			'include_media_info'                  => false,
+			'include_deleted'                     => false,
+			'include_has_explicit_shared_members' => false,
+		)));
+
+		return $adapter->makeRequest();
 	}
+
+	/**
+	 * Retrives the contents of a folder.
+	 *
+	 * @param  string $path   Dropbox path (UTF-8).
+	 * @param  object $adapter Dropbox HTTP client.
+	 * @return mixed
+	 */
+	public function listFolder($path, $adapter = null) {
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
+
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_URL);
+		$adapter->setPath('/files/list_folder');
+		$adapter->setHeader('Content-Type', 'application/json; charset=utf-8');
+		$adapter->setOption(CURLOPT_POST, true);
+		$adapter->setOption(CURLOPT_POSTFIELDS, json_encode(array(
+			'path'                                => $path,
+			'include_media_info'                  => false,
+			'include_deleted'                     => false,
+			'include_has_explicit_shared_members' => false,
+		)));
+
+		return $adapter->makeRequest();
+	}
+
 
 	/**
 	 * Deletes a file or folder
 	 *
-	 * @param  string $path The Dropbox path of the file or folder to delete (UTF-8).
+	 * @param  string $path   Dropbox path of the file or folder to delete (UTF-8).
+	 * @param  object $adapter Dropbox HTTP client.
 	 * @return mixed
 	 */
-	public function delete($path) {
-		$api = new ServMaskDropboxCurl;
-		$api->setAccessToken($this->accessToken);
-		$api->setSSL($this->ssl);
-		$api->setBaseURL(self::API_URL);
-		$api->setPath('/fileops/delete');
-		$api->setOption(CURLOPT_POST, true);
-		$api->setOption(CURLOPT_POSTFIELDS, array(
-			'root' => 'auto',
-			'path' => $path,
-		));
+	public function delete($path, $adapter = null) {
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
 
-		return $api->makeRequest();
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_URL);
+		$adapter->setPath('/files/delete');
+		$adapter->setHeader('Content-Type', 'application/json; charset=utf-8');
+		$adapter->setOption(CURLOPT_POST, true);
+		$adapter->setOption(CURLOPT_POSTFIELDS, json_encode(array(
+			'path' => $path,
+		)));
+
+		return $adapter->makeRequest();
 	}
 
 	/**
 	 * Get account info
 	 *
+	 * @param  object $adapter Dropbox HTTP client.
 	 * @return mixed
 	 */
-	public function getAccountInfo() {
-		$api = new ServMaskDropboxCurl;
-		$api->setAccessToken($this->accessToken);
-		$api->setSSL($this->ssl);
-		$api->setBaseURL(self::API_URL);
-		$api->setPath('/account/info');
+	public function getAccountInfo($adapter = null) {
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
 
-		return $api->makeRequest();
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_URL);
+		$adapter->setPath('/users/get_current_account');
+		$adapter->setOption(CURLOPT_POST, true);
+		$adapter->setOption(CURLOPT_POSTFIELDS, array());
+		$adapter->setHeader('Content-Type', 'application/json; charset=utf-8');
+
+		return $adapter->makeRequest();
+	}
+
+	/**
+	 * Get space usage info
+	 *
+	 * @param  object $adapter Dropbox HTTP client.
+	 * @return mixed
+	 */
+	public function getUsageInfo($adapter = null) {
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
+
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_URL);
+		$adapter->setPath('/users/get_space_usage');
+		$adapter->setOption(CURLOPT_POST, true);
+		$adapter->setOption(CURLOPT_POSTFIELDS, array());
+		$adapter->setHeader('Content-Type', 'application/json; charset=utf-8');
+
+		return $adapter->makeRequest();
 	}
 
 	/**
 	 * Revoke token
 	 *
+	 * @param  object $adapter Dropbox HTTP client.
 	 * @return mixed
 	 */
-	public function revoke() {
-		$api = new ServMaskDropboxCurl;
-		$api->setAccessToken($this->accessToken);
-		$api->setSSL($this->ssl);
-		$api->setBaseURL(self::API_URL);
-		$api->setPath('/disable_access_token');
-		$api->setOption(CURLOPT_POST, true);
+	public function revoke($adapter = null) {
+		if (is_null($adapter)) {
+			$adapter = new ServMaskDropboxCurl;
+		}
 
-		return $api->makeRequest();
+		$adapter->setAccessToken($this->accessToken);
+		$adapter->setSSL($this->ssl);
+		$adapter->setBaseURL(self::API_URL);
+		$adapter->setPath('/disable_access_token');
+		$adapter->setOption(CURLOPT_POST, true);
+
+		return $adapter->makeRequest();
 	}
 }

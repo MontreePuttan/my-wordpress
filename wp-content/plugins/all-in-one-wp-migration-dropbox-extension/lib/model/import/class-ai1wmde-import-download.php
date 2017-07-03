@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright (C) 2014-2015 ServMask Inc.
+ * Copyright (C) 2014-2017 ServMask Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,9 +25,17 @@
 
 class Ai1wmde_Import_Download {
 
-	public static function execute( $params ) {
+	public static function execute( $params, ServMaskDropboxClient $dropbox = null ) {
 
-		$completed = false;
+		// Set completed flag
+		$params['completed'] = false;
+
+		// Total bytes
+		if ( ! isset( $params['totalBytes'] ) ) {
+			throw new Ai1wm_Import_Exception(
+				__( 'Unable to determine file size of Dropbox File.', AI1WMDE_PLUGIN_NAME )
+			);
+		}
 
 		// Set startBytes
 		if ( ! isset( $params['startBytes'] ) ) {
@@ -45,20 +53,24 @@ class Ai1wmde_Import_Download {
 		}
 
 		// Set Dropbox client
-		$dropbox = new ServMaskDropboxClient(
-			get_option( 'ai1wmde_dropbox_token' ),
-			get_option( 'ai1wmde_dropbox_ssl', true )
-		);
+		if ( is_null( $dropbox ) ) {
+			$dropbox = new ServMaskDropboxClient(
+				get_option( 'ai1wmde_dropbox_token' ),
+				get_option( 'ai1wmde_dropbox_ssl', true )
+			);
+		}
 
 		// Get archive file
 		$archive = fopen( ai1wm_archive_path( $params ), 'ab' );
 
 		try {
+
 			// Increase number of retries
 			$params['retry'] += 1;
 
 			// Download file chunk
 			$dropbox->getFile( $params['filePath'], $archive, $params );
+
 		} catch ( Exception $e ) {
 			// Retry 3 times
 			if ( $params['retry'] <= 3 ) {
@@ -68,11 +80,8 @@ class Ai1wmde_Import_Download {
 			throw $e;
 		}
 
-		// Reset retry counter
-		$params['retry'] = 0;
-
-		// Close the archive file
-		fclose( $archive );
+		// Unset retry counter
+		unset( $params['retry'] );
 
 		// Calculate percent
 		$percent = (int) ( ( $params['startBytes'] / $params['totalBytes'] ) * 100 );
@@ -80,15 +89,25 @@ class Ai1wmde_Import_Download {
 		// Set progress
 		Ai1wm_Status::progress( $percent );
 
-		// Next file chunk
-		if ( empty( $params['totalBytes'] ) ) {
-			throw new Ai1wm_Import_Exception( 'Unable to import the archive! Please check file size parameter. ');
-		} else if ( $params['totalBytes'] == $params['startBytes'] ) {
-			$completed = true;
+		// Completed?
+		if ( $params['totalBytes'] == $params['startBytes'] ) {
+
+			// Unset total bytes
+			unset( $params['totalBytes'] );
+
+			// Unset start bytes
+			unset( $params['startBytes'] );
+
+			// Unset end bytes
+			unset( $params['endBytes'] );
+
+			// Unset completed flag
+			unset( $params['completed'] );
+
 		}
 
-		// Set completed flag
-		$params['completed'] = $completed;
+		// Close the archive file
+		fclose( $archive );
 
 		return $params;
 	}

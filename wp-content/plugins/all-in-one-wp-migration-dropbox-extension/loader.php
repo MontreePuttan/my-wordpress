@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright (C) 2014-2015 ServMask Inc.
+ * Copyright (C) 2014-2017 ServMask Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,6 +60,14 @@ require_once AI1WMDE_IMPORT_PATH .
 			DIRECTORY_SEPARATOR .
 			'class-ai1wmde-import-download.php';
 
+require_once AI1WMDE_IMPORT_PATH .
+			DIRECTORY_SEPARATOR .
+			'class-ai1wmde-import-settings.php';
+
+require_once AI1WMDE_IMPORT_PATH .
+			DIRECTORY_SEPARATOR .
+			'class-ai1wmde-import-database.php';
+
 require_once AI1WMDE_MODEL_PATH .
 			DIRECTORY_SEPARATOR .
 			'class-ai1wmde-settings.php';
@@ -73,3 +81,13 @@ require_once AI1WMDE_VENDOR_PATH .
 			'lib' .
 			DIRECTORY_SEPARATOR .
 			'ServMaskDropboxClient.php';
+
+require_once AI1WMDE_VENDOR_PATH .
+			DIRECTORY_SEPARATOR .
+			'dropbox-factory' .
+			DIRECTORY_SEPARATOR .
+			'dropbox-factory' .
+			DIRECTORY_SEPARATOR .
+			'lib' .
+			DIRECTORY_SEPARATOR .
+			'ServMaskDropboxCurl.php';
